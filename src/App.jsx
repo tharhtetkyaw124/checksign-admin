@@ -804,6 +804,45 @@ function ProductManagement() {
     product.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const handleExport = () => {
+    const headers =
+      'name,description,category,base_price,base_discount_price,base_images,tags,seo_title,seo_description,seo_keywords,variant_sku,color,size,variant_price,variant_discount_price,variant_stock,variant_images';
+    let csvContent = headers + '\n';
+
+    products.forEach((p) => {
+      p.variations.forEach((v) => {
+        const row = [
+          `"${p.name}"`,
+          `"${p.description}"`,
+          `"${getCategoryPath(p.category_id, categories)}"`,
+          p.price,
+          p.discount_price,
+          `"${(p.images || []).join(';')}"`,
+          `"${(p.tags || []).join(';')}"`,
+          `"${p.seo_title}"`,
+          `"${p.seo_description}"`,
+          `"${(p.seo_keywords || []).join(';')}"`,
+          v.sku,
+          v.color,
+          v.size,
+          v.price,
+          v.discount_price,
+          v.stock,
+          `"${(v.images || []).join(';')}"`,
+        ];
+        csvContent += row.join(',') + '\n';
+      });
+    });
+
+    const encodedUri = encodeURI('data:text/csv;charset=utf-8,' + csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', 'products_export.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className='relative'>
       <div className='flex justify-between items-center mb-6'>
@@ -823,7 +862,7 @@ function ProductManagement() {
             />
           </div>
           <button
-            onClick={() => {}}
+            onClick={handleExport}
             className='flex items-center gap-2 bg-gray-200 text-gray-800 font-semibold px-4 py-2 rounded-lg hover:bg-gray-300 transition'
           >
             <Download size={16} /> Export
@@ -2317,7 +2356,7 @@ function OrderTable({ orders, onSelectOrder, onEditOrder, onDeleteOrder }) {
 }
 
 function OrderDetail({ order, onBack, onEdit }) {
-  const { riders, fetchOrders, products } = useContext(AppContext);
+  const { riders, fetchOrders, products, categories } = useContext(AppContext);
   const [newNote, setNewNote] = useState('');
   const [newDeliveryNote, setNewDeliveryNote] = useState('');
   const [deliveryInfo, setDeliveryInfo] = useState({
@@ -2336,6 +2375,21 @@ function OrderDetail({ order, onBack, onEdit }) {
     } ${address.postal_code || ''}`
       .replace(/ ,/g, '')
       .trim();
+  };
+
+  const getCategoryPath = (categoryId, allCategories) => {
+    let path = [];
+    let currentId = categoryId;
+    while (currentId) {
+      const currentCategory = allCategories.find((c) => c.id === currentId);
+      if (currentCategory) {
+        path.unshift(currentCategory.name);
+        currentId = currentCategory.parent_id;
+      } else {
+        break;
+      }
+    }
+    return path.join(' > ');
   };
 
   const handleDeliveryInfoChange = (e) => {
@@ -2412,6 +2466,13 @@ function OrderDetail({ order, onBack, onEdit }) {
             <div className='space-y-4'>
               {(order.items || []).map((item, index) => {
                 const product = products.find((p) => p.id === item.product_id);
+                const variant = product?.variations.find(
+                  (v) => v.size === item.size && v.color === item.color
+                );
+                const imageUrl =
+                  variant?.images?.[0] ||
+                  product?.images?.[0] ||
+                  'https://placehold.co/400x400/E2E8F0/4A5568?text=Img';
                 return (
                   <div
                     key={index}
@@ -2419,15 +2480,16 @@ function OrderDetail({ order, onBack, onEdit }) {
                   >
                     <div className='flex items-center gap-4'>
                       <img
-                        src={
-                          product?.images?.[0] ||
-                          'https://placehold.co/400x400/E2E8F0/4A5568?text=Img'
-                        }
+                        src={imageUrl}
                         alt={item.name}
                         className='w-16 h-16 bg-gray-100 rounded-md flex-shrink-0 object-cover'
                       />
                       <div>
                         <p className='font-semibold'>{item.name}</p>
+                        <p className='text-sm text-gray-500'>
+                          SKU: {variant?.sku || 'N/A'} | Category:{' '}
+                          {getCategoryPath(product?.category_id, categories)}
+                        </p>
                         <p className='text-sm text-gray-500'>
                           Size: {item.size} | Color: {item.color}
                         </p>

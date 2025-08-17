@@ -84,8 +84,10 @@ import {
   UserPlus,
   PackageCheck,
   Percent,
+  Palette,
+  Check,
 } from 'lucide-react';
-
+//newwww
 // --- Firebase Configuration ---
 const firebaseConfig = {
   apiKey: 'AIzaSyBZniBrZCyss4JxJNoolQDxhKirfTtAJqE',
@@ -122,7 +124,14 @@ export default function App() {
   const [customers, setCustomers] = useState([]);
   const [riders, setRiders] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
-  const [settings, setSettings] = useState({ points_per_currency: 1000 });
+  const [settings, setSettings] = useState({
+    loyalty: { points_per_currency: 1000 },
+  });
+  const [attributes, setAttributes] = useState({
+    colors: [],
+    sizes: [],
+    offer_tags: [],
+  });
   const [loyaltyTransactions, setLoyaltyTransactions] = useState([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
@@ -151,6 +160,7 @@ export default function App() {
         fetchAdminUsers(),
         fetchSettings(),
         fetchLoyaltyTransactions(),
+        fetchAttributes(),
       ]);
     } catch (e) {
       console.error('Data fetching failed', e);
@@ -202,11 +212,34 @@ export default function App() {
     );
   };
   const fetchSettings = async () => {
-    const docRef = doc(db, 'settings', 'loyalty');
-    const docSnap = await getDoc(docRef);
+    const loyaltyRef = doc(db, 'settings', 'loyalty');
+    const docSnap = await getDoc(loyaltyRef);
     if (docSnap.exists()) {
-      setSettings(docSnap.data());
+      setSettings((prev) => ({ ...prev, loyalty: docSnap.data() }));
     }
+  };
+  const fetchAttributes = async () => {
+    const colorsQuery = query(collection(db, 'colors'), orderBy('name', 'asc'));
+    const sizesQuery = query(
+      collection(db, 'sizes'),
+      orderBy('sort_order', 'asc')
+    );
+    const tagsQuery = query(
+      collection(db, 'offer_tags'),
+      orderBy('name', 'asc')
+    );
+
+    const [colorsSnap, sizesSnap, tagsSnap] = await Promise.all([
+      getDocs(colorsQuery),
+      getDocs(sizesQuery),
+      getDocs(tagsQuery),
+    ]);
+
+    setAttributes({
+      colors: colorsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+      sizes: sizesSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+      offer_tags: tagsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+    });
   };
   const fetchLoyaltyTransactions = async () => {
     const q = query(
@@ -249,6 +282,7 @@ export default function App() {
         riders,
         adminUsers,
         settings,
+        attributes,
         loyaltyTransactions,
         fetchCategories,
         fetchProducts,
@@ -258,6 +292,7 @@ export default function App() {
         fetchAdminUsers,
         fetchSettings,
         fetchLoyaltyTransactions,
+        fetchAttributes,
         isDataLoading,
       }}
     >
@@ -411,6 +446,8 @@ function AdminDashboard({ onLogout }) {
         return <SettingsPage />;
       case 'Batch Upload':
         return <BatchUploadPage />;
+      case 'Product Attributes':
+        return <ProductAttributesPage />;
       default:
         return <DashboardView />;
     }
@@ -1065,7 +1102,11 @@ function ProductTable({ products, onEdit, onDelete, getCategoryName }) {
 }
 
 function ProductModal({ product, onClose, onSave }) {
-  const { categories, products: allProducts } = useContext(AppContext);
+  const {
+    categories,
+    products: allProducts,
+    attributes,
+  } = useContext(AppContext);
   const [formData, setFormData] = useState({
     name: product?.name || '',
     slug: product?.slug || '',
@@ -1078,9 +1119,7 @@ function ProductModal({ product, onClose, onSave }) {
     tags: Array.isArray(product?.tags)
       ? product.tags.join(', ')
       : product?.tags || '',
-    attributes: product?.attributes
-      ? Object.entries(product.attributes)
-      : [['', '']],
+    offer_tags: product?.offer_tags || [],
     seo_title: product?.seo_title || '',
     seo_description: product?.seo_description || '',
     seo_keywords: Array.isArray(product?.seo_keywords)
@@ -1089,8 +1128,8 @@ function ProductModal({ product, onClose, onSave }) {
     variations: product?.variations || [
       {
         sku: '',
-        size: '',
         color: '',
+        size: '',
         price: 0,
         discount_price: 0,
         stock: 0,
@@ -1118,6 +1157,15 @@ function ProductModal({ product, onClose, onSave }) {
     if (name === 'name') {
       setFormData((prev) => ({ ...prev, slug: createSlug(value) }));
     }
+  };
+
+  const handleOfferTagChange = (tag) => {
+    setFormData((prev) => {
+      const newTags = prev.offer_tags.includes(tag)
+        ? prev.offer_tags.filter((t) => t !== tag)
+        : [...prev.offer_tags, tag];
+      return { ...prev, offer_tags: newTags };
+    });
   };
 
   const handleVariationChange = (index, e) => {
@@ -1191,8 +1239,8 @@ function ProductModal({ product, onClose, onSave }) {
         ...prev.variations,
         {
           sku: '',
-          size: '',
           color: '',
+          size: '',
           price: 0,
           discount_price: 0,
           stock: 0,
@@ -1278,12 +1326,21 @@ function ProductModal({ product, onClose, onSave }) {
         })
       );
 
-      const { attributes, imageFiles, ...restOfFormData } = formData;
+      const available_colors = [
+        ...new Set(finalVariations.map((v) => v.color).filter(Boolean)),
+      ];
+      const available_sizes = [
+        ...new Set(finalVariations.map((v) => v.size).filter(Boolean)),
+      ];
+
+      const { imageFiles, ...restOfFormData } = formData;
 
       const finalData = {
         ...restOfFormData,
         images: uploadedBaseImages,
         variations: finalVariations,
+        available_colors,
+        available_sizes,
         tags: formData.tags.split(',').map((t) => t.trim()),
         seo_keywords: formData.seo_keywords.split(',').map((t) => t.trim()),
         updatedAt: serverTimestamp(),
@@ -1427,6 +1484,26 @@ function ProductModal({ product, onClose, onSave }) {
               </div>
             </div>
           </div>
+          {/* Offer Tags */}
+          <div className='p-5 bg-gray-50 rounded-lg border'>
+            <h3 className='font-semibold text-lg mb-4'>Offer Tags</h3>
+            <div className='flex flex-wrap gap-4'>
+              {(attributes.offer_tags || []).map((tag) => (
+                <label
+                  key={tag.name}
+                  className='flex items-center gap-2 cursor-pointer'
+                >
+                  <input
+                    type='checkbox'
+                    checked={formData.offer_tags.includes(tag.name)}
+                    onChange={() => handleOfferTagChange(tag.name)}
+                    className='h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500'
+                  />
+                  {tag.name}
+                </label>
+              ))}
+            </div>
+          </div>
           {/* Base Images */}
           <div className='p-5 bg-gray-50 rounded-lg border'>
             <h3 className='font-semibold text-lg mb-4'>
@@ -1503,18 +1580,32 @@ function ProductModal({ product, onClose, onSave }) {
                             value={v.sku}
                             onChange={(e) => handleVariationChange(index, e)}
                           />
-                          <FloatingLabelInput
+                          <FloatingLabelSelect
                             label='Color'
                             name='color'
                             value={v.color}
                             onChange={(e) => handleVariationChange(index, e)}
-                          />
-                          <FloatingLabelInput
+                          >
+                            <option value=''>Select Color</option>
+                            {(attributes.colors || []).map((c) => (
+                              <option key={c.name} value={c.name}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </FloatingLabelSelect>
+                          <FloatingLabelSelect
                             label='Size'
                             name='size'
                             value={v.size}
                             onChange={(e) => handleVariationChange(index, e)}
-                          />
+                          >
+                            <option value=''>Select Size</option>
+                            {(attributes.sizes || []).map((s) => (
+                              <option key={s.name} value={s.name}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </FloatingLabelSelect>
                           <FloatingLabelInput
                             label='Stock'
                             name='stock'
@@ -4809,14 +4900,51 @@ function ReportsPage() {
 
 // --- Settings Page ---
 function SettingsPage() {
+  const [activeTab, setActiveTab] = useState('loyalty');
+
+  return (
+    <div>
+      <h1 className='text-3xl font-bold text-gray-800 mb-6'>Settings</h1>
+      <div className='flex border-b mb-6'>
+        <button
+          onClick={() => setActiveTab('loyalty')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'loyalty'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          Loyalty Points
+        </button>
+        <button
+          onClick={() => setActiveTab('attributes')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'attributes'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          Product Attributes
+        </button>
+      </div>
+      {activeTab === 'loyalty' ? (
+        <LoyaltySettings />
+      ) : (
+        <ProductAttributesPage />
+      )}
+    </div>
+  );
+}
+
+function LoyaltySettings() {
   const { settings, fetchSettings } = useContext(AppContext);
   const [pointsRule, setPointsRule] = useState(
-    settings.points_per_currency || 1000
+    settings.loyalty.points_per_currency || 1000
   );
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    setPointsRule(settings.points_per_currency || 1000);
+    setPointsRule(settings.loyalty.points_per_currency || 1000);
   }, [settings]);
 
   const handleSave = async () => {
@@ -4835,46 +4963,147 @@ function SettingsPage() {
   };
 
   return (
-    <div>
-      <h1 className='text-3xl font-bold text-gray-800 mb-6'>Settings</h1>
-      <div className='bg-white p-6 rounded-xl border shadow-sm max-w-lg'>
-        <h3 className='text-lg font-bold mb-4'>Loyalty Points System</h3>
-        <div className='space-y-4'>
-          <div>
-            <label className='block text-sm font-medium text-gray-700'>
-              Points Rule
-            </label>
-            <p className='text-xs text-gray-500 mb-2'>
-              Set how many Kyats a customer must spend to earn 1 loyalty point.
-            </p>
-            <div className='flex items-center gap-2'>
-              <span>Earn 1 point for every</span>
-              <input
-                type='number'
-                value={pointsRule}
-                onChange={(e) => setPointsRule(e.target.value)}
-                className='form-input w-24'
-              />
-              <span>Ks spent.</span>
-            </div>
+    <div className='bg-white p-6 rounded-xl border shadow-sm max-w-lg'>
+      <h3 className='text-lg font-bold mb-4'>Loyalty Points System</h3>
+      <div className='space-y-4'>
+        <div>
+          <label className='block text-sm font-medium text-gray-700'>
+            Points Rule
+          </label>
+          <p className='text-xs text-gray-500 mb-2'>
+            Set how many Kyats a customer must spend to earn 1 loyalty point.
+          </p>
+          <div className='flex items-center gap-2'>
+            <span>Earn 1 point for every</span>
+            <input
+              type='number'
+              value={pointsRule}
+              onChange={(e) => setPointsRule(e.target.value)}
+              className='form-input w-24'
+            />
+            <span>Ks spent.</span>
           </div>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className='w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300'
-          >
-            {isSaving ? (
-              <Loader2 className='animate-spin inline-block' />
-            ) : (
-              'Save Settings'
-            )}
-          </button>
         </div>
+        <button
+          onClick={handleSave}
+          disabled={isSaving}
+          className='w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300'
+        >
+          {isSaving ? (
+            <Loader2 className='animate-spin inline-block' />
+          ) : (
+            'Save Settings'
+          )}
+        </button>
       </div>
       <style>{`.form-input { display: block; width: auto; padding: 0.5rem 0.75rem; font-size: 0.875rem; line-height: 1.25rem; color: #374151; background-color: #fff; border: 1px solid #D1D5DB; border-radius: 0.5rem; }`}</style>
     </div>
   );
 }
+
+// function AttributeSettings() {
+//   const { settings, fetchSettings } = useContext(AppContext);
+//   const [attributes, setAttributes] = useState(
+//     settings.attributes || { colors: [], sizes: [], offer_tags: [] }
+//   );
+//   const [newItem, setNewItem] = useState({ type: 'colors', value: '' });
+//   const [isSaving, setIsSaving] = useState(false);
+
+//   useEffect(() => {
+//     setAttributes(
+//       settings.attributes || { colors: [], sizes: [], offer_tags: [] }
+//     );
+//   }, [settings]);
+
+//   const handleAddItem = () => {
+//     if (!newItem.value.trim()) return;
+//     setAttributes((prev) => ({
+//       ...prev,
+//       [newItem.type]: [...(prev[newItem.type] || []), newItem.value.trim()],
+//     }));
+//     setNewItem({ type: newItem.type, value: '' });
+//   };
+
+//   const handleRemoveItem = (type, itemToRemove) => {
+//     setAttributes((prev) => ({
+//       ...prev,
+//       [type]: prev[type].filter((item) => item !== itemToRemove),
+//     }));
+//   };
+
+//   const handleSave = async () => {
+//     setIsSaving(true);
+//     try {
+//       const settingsRef = doc(db, 'settings', 'attributes');
+//       await setDoc(settingsRef, attributes);
+//       await fetchSettings();
+//       alert('Attributes saved!');
+//     } catch (error) {
+//       console.error('Error saving attributes:', error);
+//       alert('Failed to save attributes.');
+//     } finally {
+//       setIsSaving(false);
+//     }
+//   };
+
+//   return (
+//     <div className='bg-white p-6 rounded-xl border shadow-sm'>
+//       <h3 className='text-lg font-bold mb-4'>Manage Product Attributes</h3>
+//       <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+//         {['colors', 'sizes', 'offer_tags'].map((type) => (
+//           <div key={type}>
+//             <h4 className='font-semibold capitalize mb-2'>
+//               {type.replace('_', ' ')}
+//             </h4>
+//             <div className='space-y-2'>
+//               {(attributes[type] || []).map((item) => (
+//                 <div
+//                   key={item}
+//                   className='flex justify-between items-center bg-gray-100 p-2 rounded'
+//                 >
+//                   <span>{item}</span>
+//                   <button
+//                     onClick={() => handleRemoveItem(type, item)}
+//                     className='text-red-500'
+//                   >
+//                     <X size={16} />
+//                   </button>
+//                 </div>
+//               ))}
+//             </div>
+//             <div className='mt-2 flex gap-2'>
+//               <input
+//                 type='text'
+//                 value={newItem.type === type ? newItem.value : ''}
+//                 onChange={(e) => setNewItem({ type, value: e.target.value })}
+//                 placeholder={`New ${type.replace('_', ' ')}`}
+//                 className='form-input flex-grow'
+//               />
+//               <button
+//                 onClick={handleAddItem}
+//                 className='bg-gray-200 px-3 rounded'
+//               >
+//                 +
+//               </button>
+//             </div>
+//           </div>
+//         ))}
+//       </div>
+//       <button
+//         onClick={handleSave}
+//         disabled={isSaving}
+//         className='mt-6 w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300'
+//       >
+//         {isSaving ? (
+//           <Loader2 className='animate-spin inline-block' />
+//         ) : (
+//           'Save All Attributes'
+//         )}
+//       </button>
+//       <style>{`.form-input { display: block; width: 100%; padding: 0.5rem 0.75rem; font-size: 0.875rem; line-height: 1.25rem; color: #374151; background-color: #fff; border: 1px solid #D1D5DB; border-radius: 0.5rem; }`}</style>
+//     </div>
+//   );
+// }
 
 // --- Batch Upload Page ---
 function BatchUploadPage() {
@@ -5392,6 +5621,274 @@ function CustomerAnalyticsPage() {
         )}
       </AnimatePresence>
       <style>{`.form-input { display: block; width: auto; padding: 0.5rem 0.75rem; font-size: 0.875rem; line-height: 1.25rem; color: #374151; background-color: #fff; border: 1px solid #D1D5DB; border-radius: 0.5rem; }`}</style>
+    </div>
+  );
+}
+
+// --- Product Attributes Page ---
+function ProductAttributesPage() {
+  const [activeTab, setActiveTab] = useState('colors');
+
+  return (
+    <div>
+      <h2 className='text-2xl font-bold text-gray-800 mb-2'>
+        Product Attributes
+      </h2>
+      <p className='text-gray-500 mb-6'>
+        Manage all Colors, Sizes, and Offer Tags used in your store products.
+      </p>
+      <div className='flex border-b mb-6'>
+        <button
+          onClick={() => setActiveTab('colors')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'colors'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          Colors
+        </button>
+        <button
+          onClick={() => setActiveTab('sizes')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'sizes'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          Sizes
+        </button>
+        <button
+          onClick={() => setActiveTab('offer_tags')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'offer_tags'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          Offer Tags
+        </button>
+      </div>
+      {activeTab === 'colors' && (
+        <AttributeManager type='colors' label='Color' />
+      )}
+      {activeTab === 'sizes' && <AttributeManager type='sizes' label='Size' />}
+      {activeTab === 'offer_tags' && (
+        <AttributeManager type='offer_tags' label='Offer Tag' />
+      )}
+    </div>
+  );
+}
+
+function AttributeManager({ type, label }) {
+  const { attributes, fetchAttributes } = useContext(AppContext);
+  const [items, setItems] = useState([]);
+  const [newItem, setNewItem] = useState({ name: '', code: '', sort_order: 0 });
+  const [isSaving, setIsSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editValues, setEditValues] = useState({});
+
+  useEffect(() => {
+    setItems(attributes[type] || []);
+  }, [attributes, type]);
+
+  const handleAddItem = async () => {
+    if (!newItem.name.trim()) return;
+    setIsSaving(true);
+    try {
+      await addDoc(collection(db, type), {
+        ...newItem,
+        createdAt: serverTimestamp(),
+      });
+      setNewItem({ name: '', code: '', sort_order: 0 });
+      await fetchAttributes();
+    } catch (error) {
+      console.error(`Error adding ${label}:`, error);
+      alert(`Failed to add ${label}.`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteItem = async (id) => {
+    if (window.confirm(`Are you sure you want to delete this ${label}?`)) {
+      try {
+        await deleteDoc(doc(db, type, id));
+        await fetchAttributes();
+      } catch (error) {
+        console.error(`Error deleting ${label}:`, error);
+        alert(`Failed to delete ${label}.`);
+      }
+    }
+  };
+
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setEditValues(item);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditValues({});
+  };
+
+  const handleUpdate = async () => {
+    setIsSaving(true);
+    try {
+      const { id, ...dataToUpdate } = editValues;
+      await updateDoc(doc(db, type, id), dataToUpdate);
+      await fetchAttributes();
+      handleCancelEdit();
+    } catch (error) {
+      console.error(`Error updating ${label}:`, error);
+      alert(`Failed to update ${label}.`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className='bg-white p-6 rounded-xl border shadow-sm'>
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-4 mb-4'>
+        <FloatingLabelInput
+          label={`${label} Name`}
+          value={newItem.name}
+          onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
+        />
+        {type === 'colors' && (
+          <FloatingLabelInput
+            label='Color Code (e.g., #FF0000)'
+            value={newItem.code}
+            onChange={(e) =>
+              setNewItem((p) => ({ ...p, code: e.target.value }))
+            }
+          />
+        )}
+        {type === 'sizes' && (
+          <FloatingLabelInput
+            label='Sort Order'
+            type='number'
+            value={newItem.sort_order}
+            onChange={(e) =>
+              setNewItem((p) => ({ ...p, sort_order: Number(e.target.value) }))
+            }
+          />
+        )}
+        <button
+          onClick={handleAddItem}
+          disabled={isSaving}
+          className='bg-blue-600 text-white rounded-lg font-semibold'
+        >
+          {isSaving ? (
+            <Loader2 className='animate-spin mx-auto' />
+          ) : (
+            `Add ${label}`
+          )}
+        </button>
+      </div>
+      <div className='overflow-x-auto'>
+        <table className='w-full text-sm'>
+          <thead className='text-xs text-gray-700 uppercase bg-gray-50'>
+            <tr>
+              <th className='px-4 py-2'>Name</th>
+              {type === 'colors' && <th className='px-4 py-2'>Preview</th>}
+              {type === 'sizes' && <th className='px-4 py-2'>Sort Order</th>}
+              <th className='px-4 py-2 text-right'>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id} className='border-b'>
+                {editingId === item.id ? (
+                  <>
+                    <td>
+                      <FloatingLabelInput
+                        label='Name'
+                        value={editValues.name}
+                        onChange={(e) =>
+                          setEditValues((p) => ({ ...p, name: e.target.value }))
+                        }
+                      />
+                    </td>
+                    {type === 'colors' && (
+                      <td>
+                        <FloatingLabelInput
+                          label='Code'
+                          value={editValues.code}
+                          onChange={(e) =>
+                            setEditValues((p) => ({
+                              ...p,
+                              code: e.target.value,
+                            }))
+                          }
+                        />
+                      </td>
+                    )}
+                    {type === 'sizes' && (
+                      <td>
+                        <FloatingLabelInput
+                          label='Sort Order'
+                          type='number'
+                          value={editValues.sort_order}
+                          onChange={(e) =>
+                            setEditValues((p) => ({
+                              ...p,
+                              sort_order: Number(e.target.value),
+                            }))
+                          }
+                        />
+                      </td>
+                    )}
+                    <td className='px-4 py-2 text-right'>
+                      <button
+                        onClick={handleUpdate}
+                        className='p-2 text-green-600 hover:text-green-800'
+                      >
+                        <Check size={16} />
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        className='p-2 text-gray-500 hover:text-gray-700'
+                      >
+                        <X size={16} />
+                      </button>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className='px-4 py-2'>{item.name}</td>
+                    {type === 'colors' && (
+                      <td className='px-4 py-2'>
+                        <div
+                          className='w-6 h-6 rounded-full border'
+                          style={{ backgroundColor: item.code }}
+                        ></div>
+                      </td>
+                    )}
+                    {type === 'sizes' && (
+                      <td className='px-4 py-2'>{item.sort_order}</td>
+                    )}
+                    <td className='px-4 py-2 text-right'>
+                      <button
+                        onClick={() => handleEdit(item)}
+                        className='p-2 text-gray-400 hover:text-blue-600'
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteItem(item.id)}
+                        className='p-2 text-gray-400 hover:text-red-600'
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

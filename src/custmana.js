@@ -1,273 +1,83 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  createContext,
-  useContext,
-} from 'react';
-import { initializeApp } from 'firebase/app';
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  onAuthStateChanged,
-  signOut,
-} from 'firebase/auth';
-import {
-  getFirestore,
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  doc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-  runTransaction,
-  writeBatch,
-  arrayRemove,
-  orderBy,
-  getDoc,
-  setDoc,
-  where,
-} from 'firebase/firestore';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from 'recharts';
-import {
-  LayoutDashboard,
-  ShoppingBag,
-  List,
-  Users,
-  Truck,
-  Building,
-  Award,
-  User,
-  BarChart2,
-  Bell,
-  Settings,
-  LogOut,
-  ChevronLeft,
-  ChevronRight,
-  Search,
-  MoreVertical,
-  Plus,
-  Edit,
-  Trash2,
-  Eye,
-  X,
-  UploadCloud,
-  Folder,
-  CornerDownRight,
-  Loader2,
-  MessageSquare,
-  Send,
-  AlertTriangle,
-  ChevronDown,
-  Download,
-  FileUp,
-  History,
-  FileCheck2,
-  FileX2,
-} from 'lucide-react';
-
-// --- Firebase Configuration ---
-const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_AUTH_DOMAIN',
-  projectId: 'YOUR_PROJECT_ID',
-  storageBucket: 'YOUR_STORAGE_BUCKET',
-  messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-  appId: 'YOUR_APP_ID',
-};
-
-// --- Cloudinary Configuration ---
-const CLOUDINARY_CLOUD_NAME = 'YOUR_CLOUD_NAME';
-const CLOUDINARY_UPLOAD_PRESET = 'YOUR_UPLOAD_PRESET';
-
-// --- Initialize Firebase ---
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-// --- Context ---
-const SidebarContext = createContext();
-const AppContext = createContext();
-
-// --- Main App Component ---
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [categories, setCategories] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [riders, setRiders] = useState([]);
-  const [adminUsers, setAdminUsers] = useState([]);
-  const [settings, setSettings] = useState({ points_per_currency: 1000 });
-  const [isDataLoading, setIsDataLoading] = useState(true);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        fetchAllData();
-      } else {
-        setLoading(false);
-        setIsDataLoading(false);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const fetchAllData = async () => {
-    setIsDataLoading(true);
-    try {
-      await Promise.all([
-        fetchCategories(),
-        fetchProducts(),
-        fetchOrders(),
-        fetchCustomers(),
-        fetchRiders(),
-        fetchAdminUsers(),
-        fetchSettings(),
-      ]);
-    } catch (e) {
-      console.error('Data fetching failed', e);
-      alert(
-        'Failed to fetch data from the database. Please check your Firestore security rules and ensure you have an active internet connection. Ad blockers can also cause this issue.'
-      );
-    } finally {
-      setIsDataLoading(false);
-      setLoading(false);
-    }
-  };
-
-  const fetchCategories = async () => {
-    const q = query(collection(db, 'categories'), orderBy('sort_order', 'asc'));
-    const querySnapshot = await getDocs(q);
-    setCategories(
-      querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-    );
-  };
-  const fetchProducts = async () => {
-    const q = query(collection(db, 'products'));
-    const querySnapshot = await getDocs(q);
-    setProducts(
-      querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-    );
-  };
-  const fetchOrders = async () => {
-    const q = query(collection(db, 'orders'));
-    const querySnapshot = await getDocs(q);
-    setOrders(querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-  };
-  const fetchCustomers = async () => {
-    const q = query(collection(db, 'customers'));
-    const querySnapshot = await getDocs(q);
-    setCustomers(
-      querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-    );
-  };
-  const fetchRiders = async () => {
-    const q = query(collection(db, 'riders'));
-    const querySnapshot = await getDocs(q);
-    setRiders(querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-  };
-  const fetchAdminUsers = async () => {
-    const q = query(collection(db, 'users'));
-    const querySnapshot = await getDocs(q);
-    setAdminUsers(
-      querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-    );
-  };
-  const fetchSettings = async () => {
-    const docRef = doc(db, 'settings', 'loyalty');
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      setSettings(docSnap.data());
-    }
-  };
-
-  const handleLogin = async (email, password) => {
-    setError('');
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (err) {
-      setError(err.message.replace('Firebase: ', ''));
-    }
-  };
-  const handleLogout = async () => {
-    await signOut(auth);
-  };
-
-  if (loading) {
-    return (
-      <div className='flex items-center justify-center min-h-screen bg-gray-50'>
-        <Loader2 className='animate-spin text-blue-500' size={48} />
-      </div>
-    );
-  }
-
-  return (
-    <AppContext.Provider
-      value={{
-        categories,
-        products,
-        orders,
-        customers,
-        riders,
-        adminUsers,
-        settings,
-        fetchCategories,
-        fetchProducts,
-        fetchOrders,
-        fetchCustomers,
-        fetchRiders,
-        fetchAdminUsers,
-        fetchSettings,
-        isDataLoading,
-      }}
-    >
-      <AnimatePresence mode='wait'>
-        {user ? (
-          <motion.div
-            key='dashboard'
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <AdminDashboard onLogout={handleLogout} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key='login'
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <Login onLogin={handleLogin} error={error} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </AppContext.Provider>
-  );
-}
-
 // --- Login Page (Unchanged) ---
 function Login({ onLogin, error }) {
   /* ... */
+}
+
+// --- Admin Dashboard Layout ---
+function AdminDashboard({ onLogout }) {
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
+  const [activeView, setActiveView] = useState('Dashboard');
+  const { isDataLoading } = useContext(AppContext);
+
+  const renderContent = () => {
+    if (isDataLoading && activeView !== 'Dashboard') {
+      return (
+        <div className='flex items-center justify-center h-full'>
+          <Loader2 className='animate-spin text-blue-500' size={32} />
+        </div>
+      );
+    }
+    switch (activeView) {
+      case 'Dashboard':
+        return <DashboardView />;
+      case 'Products':
+        return <ProductManagement />;
+      case 'Categories':
+        return <CategoryManagement />;
+      case 'Orders':
+        return <OrderManagement />;
+      case 'Customers':
+        return <CustomerManagement />;
+      case 'Riders':
+        return <RiderManagement />;
+      case 'Member Points':
+        return <MemberPointsManagement />;
+      case 'User Roles':
+        return <UserRolesManagement />;
+      case 'Reports':
+        return <ReportsPage />;
+      case 'Settings':
+        return <SettingsPage />;
+      case 'Batch Upload':
+        return <BatchUploadPage />;
+      default:
+        return <DashboardView />;
+    }
+  };
+  return (
+    <SidebarContext.Provider value={{ isExpanded: isSidebarExpanded }}>
+      {' '}
+      <div className='flex h-screen bg-gray-50 font-sans'>
+        {' '}
+        <Sidebar
+          onLogout={onLogout}
+          onToggle={() => setIsSidebarExpanded((prev) => !prev)}
+          activeView={activeView}
+          setActiveView={setActiveView}
+        />{' '}
+        <div className='flex-1 flex flex-col overflow-hidden'>
+          {' '}
+          <Header />{' '}
+          <main className='flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6'>
+            {' '}
+            <AnimatePresence mode='wait'>
+              {' '}
+              <motion.div
+                key={activeView}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                {' '}
+                {renderContent()}{' '}
+              </motion.div>{' '}
+            </AnimatePresence>{' '}
+          </main>{' '}
+        </div>{' '}
+      </div>{' '}
+    </SidebarContext.Provider>
+  );
 }
 
 // --- Sidebar (Unchanged) ---
@@ -310,7 +120,16 @@ function CategoryModal({ category, onClose, onSave }) {
   /* ... */
 }
 
-// --- Add Order Modal (Unchanged) ---
+// --- Order Management (Unchanged) ---
+function OrderManagement() {
+  /* ... */
+}
+function OrderTable({ orders, onSelectOrder, onEditOrder, onDeleteOrder }) {
+  /* ... */
+}
+function OrderDetail({ order, onBack, onEdit }) {
+  /* ... */
+}
 function AddOrderModal({ order, onClose, onSave }) {
   /* ... */
 }
@@ -345,12 +164,348 @@ function AddRiderModal({ rider, onClose, onSave }) {
   /* ... */
 }
 
-// --- Member Points Management (Unchanged) ---
+// --- Member Points Management ---
 function MemberPointsManagement() {
-  /* ... */
+  const [activeTab, setActiveTab] = useState('balances');
+
+  return (
+    <div>
+      <h1 className='text-3xl font-bold text-gray-800 mb-6'>Member Points</h1>
+      <div className='flex border-b mb-6'>
+        <button
+          onClick={() => setActiveTab('balances')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'balances'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          Balances
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'history'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          History
+        </button>
+      </div>
+      {activeTab === 'balances' ? <PointsBalances /> : <PointsHistory />}
+    </div>
+  );
 }
+
+function PointsBalances() {
+  const { customers, fetchCustomers, fetchLoyaltyTransactions } =
+    useContext(AppContext);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+  const handleSave = async () => {
+    await fetchCustomers();
+    await fetchLoyaltyTransactions();
+    setSelectedCustomer(null);
+  };
+
+  return (
+    <div>
+      <div className='bg-white p-6 rounded-xl border border-gray-200 shadow-sm'>
+        <div className='overflow-x-auto'>
+          <table className='w-full text-sm text-left text-gray-500'>
+            <thead className='text-xs text-gray-700 uppercase bg-gray-50'>
+              <tr>
+                <th scope='col' className='px-6 py-3'>
+                  Customer
+                </th>
+                <th scope='col' className='px-6 py-3'>
+                  Total Spent
+                </th>
+                <th scope='col' className='px-6 py-3'>
+                  Current Points
+                </th>
+                <th scope='col' className='px-6 py-3 text-center'>
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {customers.map((customer) => (
+                <tr
+                  key={customer.id}
+                  className='bg-white border-b hover:bg-gray-50'
+                >
+                  <td className='px-6 py-4 font-medium text-gray-900'>
+                    {customer.name}
+                  </td>
+                  <td className='px-6 py-4'>
+                    Ks {(customer.total_spent || 0).toLocaleString()}
+                  </td>
+                  <td className='px-6 py-4 font-bold text-blue-600'>
+                    {customer.loyalty_points || 0}
+                  </td>
+                  <td className='px-6 py-4 text-center'>
+                    <button
+                      onClick={() => setSelectedCustomer(customer)}
+                      className='font-medium text-blue-600 hover:underline'
+                    >
+                      Adjust Points
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <AnimatePresence>
+        {selectedCustomer && (
+          <AdjustPointsModal
+            customer={selectedCustomer}
+            onClose={() => setSelectedCustomer(null)}
+            onSave={handleSave}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function PointsHistory() {
+  const { loyaltyTransactions } = useContext(AppContext);
+  const [filters, setFilters] = useState({ startDate: '', endDate: '' });
+  const [sort, setSort] = useState({ key: 'created_at', direction: 'desc' });
+
+  const handleFilterChange = (e) => {
+    setFilters((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const handleSort = (key) => {
+    setSort((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const filteredTransactions = loyaltyTransactions
+    .filter((tx) => {
+      if (!tx.created_at || !tx.created_at.toDate) return true; // Keep transactions without a date for now
+      const txDate = tx.created_at.toDate();
+      if (filters.startDate && txDate < new Date(filters.startDate))
+        return false;
+      if (filters.endDate) {
+        const endDate = new Date(filters.endDate);
+        endDate.setHours(23, 59, 59, 999); // Include the whole end day
+        if (txDate > endDate) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const valA = a[sort.key];
+      const valB = b[sort.key];
+      if (sort.direction === 'asc') {
+        return valA > valB ? 1 : -1;
+      } else {
+        return valA < valB ? 1 : -1;
+      }
+    });
+
+  return (
+    <div className='bg-white p-6 rounded-xl border border-gray-200 shadow-sm'>
+      <div className='flex items-center gap-4 mb-4'>
+        <input
+          type='date'
+          name='startDate'
+          value={filters.startDate}
+          onChange={handleFilterChange}
+          className='form-input'
+        />
+        <span>to</span>
+        <input
+          type='date'
+          name='endDate'
+          value={filters.endDate}
+          onChange={handleFilterChange}
+          className='form-input'
+        />
+      </div>
+      <div className='overflow-x-auto'>
+        <table className='w-full text-sm text-left text-gray-500'>
+          <thead className='text-xs text-gray-700 uppercase bg-gray-50'>
+            <tr>
+              <th
+                scope='col'
+                className='px-6 py-3 cursor-pointer'
+                onClick={() => handleSort('created_at')}
+              >
+                Date
+              </th>
+              <th scope='col' className='px-6 py-3'>
+                Customer
+              </th>
+              <th
+                scope='col'
+                className='px-6 py-3 cursor-pointer'
+                onClick={() => handleSort('points')}
+              >
+                Points
+              </th>
+              <th scope='col' className='px-6 py-3'>
+                Reason
+              </th>
+              <th scope='col' className='px-6 py-3'>
+                Balance After
+              </th>
+              <th scope='col' className='px-6 py-3'>
+                Transaction ID
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredTransactions.map((tx) => (
+              <tr key={tx.id} className='bg-white border-b hover:bg-gray-50'>
+                <td className='px-6 py-4'>
+                  {tx.created_at
+                    ? new Date(tx.created_at.seconds * 1000).toLocaleString()
+                    : 'N/A'}
+                </td>
+                <td className='px-6 py-4'>{tx.customer_name}</td>
+                <td
+                  className={`px-6 py-4 font-semibold ${
+                    tx.points > 0 ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
+                  {tx.points > 0 ? `+${tx.points}` : tx.points}
+                </td>
+                <td className='px-6 py-4'>{tx.reason}</td>
+                <td className='px-6 py-4 font-bold'>{tx.balance_after}</td>
+                <td className='px-6 py-4 text-xs text-gray-500'>
+                  {tx.id.slice(0, 8)}...
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function AdjustPointsModal({ customer, onClose, onSave }) {
-  /* ... */
+  const [adjustment, setAdjustment] = useState(0);
+  const [reason, setReason] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (adjustment === 0 || !reason) {
+      alert('Please enter a non-zero point value and a reason.');
+      return;
+    }
+    setIsSaving(true);
+
+    const newPoints = (customer.loyalty_points || 0) + adjustment;
+
+    try {
+      const batch = writeBatch(db);
+
+      const customerRef = doc(db, 'customers', customer.id);
+      batch.update(customerRef, { loyalty_points: newPoints });
+
+      const transactionRef = doc(collection(db, 'loyalty_transactions'));
+      batch.set(transactionRef, {
+        customer_id: customer.id,
+        customer_name: customer.name,
+        points: adjustment,
+        type: adjustment > 0 ? 'earn' : 'redeem',
+        reason: reason,
+        reason_code: 'MANUAL_ADJUSTMENT',
+        balance_after: newPoints,
+        created_at: serverTimestamp(),
+      });
+
+      await batch.commit();
+      onSave();
+    } catch (error) {
+      console.error('Error adjusting points:', error);
+      alert('Failed to adjust points.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      className='fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4'
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        className='bg-white rounded-xl w-full max-w-md'
+        initial={{ y: -50, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: -50, opacity: 0 }}
+      >
+        <div className='flex justify-between items-center p-6 border-b'>
+          <h2 className='text-2xl font-bold text-gray-800'>
+            Adjust Points for {customer.name}
+          </h2>
+          <button
+            onClick={onClose}
+            className='p-2 rounded-full hover:bg-gray-200'
+          >
+            <X size={24} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className='p-6 space-y-4'>
+            <p>
+              Current Points:{' '}
+              <span className='font-bold'>{customer.loyalty_points || 0}</span>
+            </p>
+            <FloatingLabelInput
+              label='Points to Add/Remove'
+              type='number'
+              value={adjustment}
+              onChange={(e) => setAdjustment(parseInt(e.target.value, 10))}
+              placeholder='e.g., 50 or -20'
+              required
+            />
+            <FloatingLabelInput
+              label='Reason'
+              type='text'
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder='e.g., Special promotion'
+              required
+            />
+          </div>
+          <div className='flex justify-end items-center p-6 border-t bg-gray-50'>
+            <button
+              type='button'
+              onClick={onClose}
+              className='px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-200 transition'
+            >
+              Cancel
+            </button>
+            <button
+              type='submit'
+              disabled={isSaving}
+              className='px-6 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition disabled:bg-blue-300'
+            >
+              {isSaving ? (
+                <Loader2 className='animate-spin inline-block' />
+              ) : (
+                'Save Changes'
+              )}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </motion.div>
+  );
 }
 
 // --- User Roles Management (Unchanged) ---

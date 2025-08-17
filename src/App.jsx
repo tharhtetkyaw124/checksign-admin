@@ -118,6 +118,7 @@ export default function App() {
   const [riders, setRiders] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
   const [settings, setSettings] = useState({ points_per_currency: 1000 });
+  const [loyaltyTransactions, setLoyaltyTransactions] = useState([]);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   useEffect(() => {
@@ -144,6 +145,7 @@ export default function App() {
         fetchRiders(),
         fetchAdminUsers(),
         fetchSettings(),
+        fetchLoyaltyTransactions(),
       ]);
     } catch (e) {
       console.error('Data fetching failed', e);
@@ -201,6 +203,16 @@ export default function App() {
       setSettings(docSnap.data());
     }
   };
+  const fetchLoyaltyTransactions = async () => {
+    const q = query(
+      collection(db, 'loyalty_transactions'),
+      orderBy('created_at', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    setLoyaltyTransactions(
+      querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    );
+  };
 
   const handleLogin = async (email, password) => {
     setError('');
@@ -232,6 +244,7 @@ export default function App() {
         riders,
         adminUsers,
         settings,
+        loyaltyTransactions,
         fetchCategories,
         fetchProducts,
         fetchOrders,
@@ -239,6 +252,7 @@ export default function App() {
         fetchRiders,
         fetchAdminUsers,
         fetchSettings,
+        fetchLoyaltyTransactions,
         isDataLoading,
       }}
     >
@@ -3836,19 +3850,51 @@ function AddRiderModal({ rider, onClose, onSave }) {
 
 // --- Member Points Management ---
 function MemberPointsManagement() {
-  const { customers, fetchCustomers } = useContext(AppContext);
+  const [activeTab, setActiveTab] = useState('balances');
+
+  return (
+    <div>
+      <h1 className='text-3xl font-bold text-gray-800 mb-6'>Member Points</h1>
+      <div className='flex border-b mb-6'>
+        <button
+          onClick={() => setActiveTab('balances')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'balances'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          Balances
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`py-2 px-4 font-semibold ${
+            activeTab === 'history'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500'
+          }`}
+        >
+          History
+        </button>
+      </div>
+      {activeTab === 'balances' ? <PointsBalances /> : <PointsHistory />}
+    </div>
+  );
+}
+
+function PointsBalances() {
+  const { customers, fetchCustomers, fetchLoyaltyTransactions } =
+    useContext(AppContext);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
   const handleSave = async () => {
     await fetchCustomers();
+    await fetchLoyaltyTransactions();
     setSelectedCustomer(null);
   };
 
   return (
     <div>
-      <h1 className='text-3xl font-bold text-gray-800 mb-6'>
-        Member Points Control
-      </h1>
       <div className='bg-white p-6 rounded-xl border border-gray-200 shadow-sm'>
         <div className='overflow-x-auto'>
           <table className='w-full text-sm text-left text-gray-500'>
@@ -3910,6 +3956,126 @@ function MemberPointsManagement() {
   );
 }
 
+function PointsHistory() {
+  const { loyaltyTransactions } = useContext(AppContext);
+  const [filters, setFilters] = useState({ startDate: '', endDate: '' });
+  const [sort, setSort] = useState({ key: 'created_at', direction: 'desc' });
+
+  const handleFilterChange = (e) => {
+    setFilters((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const handleSort = (key) => {
+    setSort((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const filteredTransactions = loyaltyTransactions
+    .filter((tx) => {
+      if (!tx.created_at || !tx.created_at.toDate) return true; // Keep transactions without a date for now
+      const txDate = tx.created_at.toDate();
+      if (filters.startDate && txDate < new Date(filters.startDate))
+        return false;
+      if (filters.endDate) {
+        const endDate = new Date(filters.endDate);
+        endDate.setHours(23, 59, 59, 999); // Include the whole end day
+        if (txDate > endDate) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const valA = a[sort.key];
+      const valB = b[sort.key];
+      if (sort.direction === 'asc') {
+        return valA > valB ? 1 : -1;
+      } else {
+        return valA < valB ? 1 : -1;
+      }
+    });
+
+  return (
+    <div className='bg-white p-6 rounded-xl border border-gray-200 shadow-sm'>
+      <div className='flex items-center gap-4 mb-4'>
+        <input
+          type='date'
+          name='startDate'
+          value={filters.startDate}
+          onChange={handleFilterChange}
+          className='form-input'
+        />
+        <span>to</span>
+        <input
+          type='date'
+          name='endDate'
+          value={filters.endDate}
+          onChange={handleFilterChange}
+          className='form-input'
+        />
+      </div>
+      <div className='overflow-x-auto'>
+        <table className='w-full text-sm text-left text-gray-500'>
+          <thead className='text-xs text-gray-700 uppercase bg-gray-50'>
+            <tr>
+              <th
+                scope='col'
+                className='px-6 py-3 cursor-pointer'
+                onClick={() => handleSort('created_at')}
+              >
+                Date
+              </th>
+              <th scope='col' className='px-6 py-3'>
+                Customer
+              </th>
+              <th
+                scope='col'
+                className='px-6 py-3 cursor-pointer'
+                onClick={() => handleSort('points')}
+              >
+                Points
+              </th>
+              <th scope='col' className='px-6 py-3'>
+                Reason
+              </th>
+              <th scope='col' className='px-6 py-3'>
+                Balance After
+              </th>
+              <th scope='col' className='px-6 py-3'>
+                Transaction ID
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredTransactions.map((tx) => (
+              <tr key={tx.id} className='bg-white border-b hover:bg-gray-50'>
+                <td className='px-6 py-4'>
+                  {tx.created_at
+                    ? new Date(tx.created_at.seconds * 1000).toLocaleString()
+                    : 'N/A'}
+                </td>
+                <td className='px-6 py-4'>{tx.customer_name}</td>
+                <td
+                  className={`px-6 py-4 font-semibold ${
+                    tx.points > 0 ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
+                  {tx.points > 0 ? `+${tx.points}` : tx.points}
+                </td>
+                <td className='px-6 py-4'>{tx.reason}</td>
+                <td className='px-6 py-4 font-bold'>{tx.balance_after}</td>
+                <td className='px-6 py-4 text-xs text-gray-500'>
+                  {tx.id.slice(0, 8)}...
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function AdjustPointsModal({ customer, onClose, onSave }) {
   const [adjustment, setAdjustment] = useState(0);
   const [reason, setReason] = useState('');
@@ -3926,7 +4092,6 @@ function AdjustPointsModal({ customer, onClose, onSave }) {
     const newPoints = (customer.loyalty_points || 0) + adjustment;
 
     try {
-      // Use a batch write to update customer and create a transaction log
       const batch = writeBatch(db);
 
       const customerRef = doc(db, 'customers', customer.id);
@@ -3939,6 +4104,8 @@ function AdjustPointsModal({ customer, onClose, onSave }) {
         points: adjustment,
         type: adjustment > 0 ? 'earn' : 'redeem',
         reason: reason,
+        reason_code: 'MANUAL_ADJUSTMENT',
+        balance_after: newPoints,
         created_at: serverTimestamp(),
       });
 
@@ -3982,32 +4149,22 @@ function AdjustPointsModal({ customer, onClose, onSave }) {
               Current Points:{' '}
               <span className='font-bold'>{customer.loyalty_points || 0}</span>
             </p>
-            <div>
-              <label className='block text-sm font-medium text-gray-700'>
-                Points to Add/Remove
-              </label>
-              <input
-                type='number'
-                value={adjustment}
-                onChange={(e) => setAdjustment(parseInt(e.target.value, 10))}
-                placeholder='e.g., 50 or -20'
-                className='w-full form-input mt-1'
-                required
-              />
-            </div>
-            <div>
-              <label className='block text-sm font-medium text-gray-700'>
-                Reason
-              </label>
-              <input
-                type='text'
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder='e.g., Special promotion'
-                className='w-full form-input mt-1'
-                required
-              />
-            </div>
+            <FloatingLabelInput
+              label='Points to Add/Remove'
+              type='number'
+              value={adjustment}
+              onChange={(e) => setAdjustment(parseInt(e.target.value, 10))}
+              placeholder='e.g., 50 or -20'
+              required
+            />
+            <FloatingLabelInput
+              label='Reason'
+              type='text'
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder='e.g., Special promotion'
+              required
+            />
           </div>
           <div className='flex justify-end items-center p-6 border-t bg-gray-50'>
             <button
@@ -4031,7 +4188,6 @@ function AdjustPointsModal({ customer, onClose, onSave }) {
           </div>
         </form>
       </motion.div>
-      <style>{`.form-input { display: block; width: 100%; padding: 0.5rem 0.75rem; font-size: 0.875rem; line-height: 1.25rem; color: #374151; background-color: #fff; border: 1px solid #D1D5DB; border-radius: 0.5rem; } .form-input:focus { outline: none; border-color: #3B82F6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }`}</style>
     </motion.div>
   );
 }

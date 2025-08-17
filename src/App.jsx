@@ -4,6 +4,7 @@ import React, {
   useRef,
   createContext,
   useContext,
+  useMemo,
 } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
@@ -79,6 +80,9 @@ import {
   History,
   FileCheck2,
   FileX2,
+  TrendingUp,
+  UserPlus,
+  PackageCheck,
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -443,6 +447,7 @@ function AdminDashboard({ onLogout }) {
     </SidebarContext.Provider>
   );
 }
+
 // --- Sidebar ---
 function Sidebar({ onLogout, onToggle, activeView, setActiveView }) {
   const { isExpanded } = useContext(SidebarContext);
@@ -558,6 +563,7 @@ function SidebarItem({ icon, text, active }) {
     </div>
   );
 }
+
 // --- Header ---
 function Header() {
   return (
@@ -600,52 +606,81 @@ function Header() {
     </header>
   );
 }
+
 // --- Dashboard View ---
 function DashboardView() {
-  const { isDataLoading } = useContext(AppContext);
-  const statsCardsData = [
-    {
-      title: 'Total Sales (This Month)',
-      value: 'Ks 12,500,000',
-      change: '+15.2%',
-      changeType: 'increase',
-      icon: <BarChart2 size={24} className='text-blue-500' />,
-    },
-    {
-      title: 'Orders Pending',
-      value: '28',
-      change: '+5',
-      changeType: 'increase',
-      icon: <List size={24} className='text-orange-500' />,
-    },
-    {
-      title: 'Top-Selling Item',
-      value: 'Classic Cotton T-Shirt',
-      change: '150 units',
-      changeType: 'neutral',
-      icon: <ShoppingBag size={24} className='text-green-500' />,
-    },
-    {
-      title: 'Low Stock Alerts',
-      value: '5 items',
-      change: 'Check inventory',
-      changeType: 'decrease',
-      icon: <Bell size={24} className='text-red-500' />,
-    },
-  ];
-  const salesData = [
-    { name: 'Week 1', sales: 4000 },
-    { name: 'Week 2', sales: 3000 },
-    { name: 'Week 3', sales: 2000 },
-    { name: 'Week 4', sales: 2780 },
-  ];
-  const categoryData = [
-    { name: 'Men', value: 400 },
-    { name: 'Women', value: 300 },
-    { name: 'Kids', value: 300 },
-    { name: 'Accessories', value: 200 },
-  ];
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
+  const { orders, customers, products, isDataLoading } = useContext(AppContext);
+  const [dateFilter, setDateFilter] = useState('this_month');
+
+  const { stats, recentOrders, lowStockItems } = useMemo(() => {
+    let startDate = new Date();
+    const endDate = new Date();
+
+    switch (dateFilter) {
+      case 'today':
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'this_week':
+        startDate.setDate(endDate.getDate() - 7);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'this_month':
+        startDate = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      default:
+        break;
+    }
+
+    const filteredOrders = orders.filter(
+      (order) =>
+        order.created_at?.toDate() >= startDate &&
+        order.created_at?.toDate() <= endDate
+    );
+    const filteredCustomers = customers.filter(
+      (customer) =>
+        customer.created_at?.toDate() >= startDate &&
+        customer.created_at?.toDate() <= endDate
+    );
+
+    const totalSales = filteredOrders.reduce(
+      (sum, order) => sum + order.total_amount,
+      0
+    );
+
+    const stats = [
+      {
+        title: 'Total Sales',
+        value: `Ks ${totalSales.toLocaleString()}`,
+        icon: <TrendingUp className='text-green-500' />,
+      },
+      {
+        title: 'New Orders',
+        value: filteredOrders.length,
+        icon: <PackageCheck className='text-blue-500' />,
+      },
+      {
+        title: 'New Customers',
+        value: filteredCustomers.length,
+        icon: <UserPlus className='text-indigo-500' />,
+      },
+    ];
+
+    const recent = [...orders]
+      .sort((a, b) => b.created_at.seconds - a.created_at.seconds)
+      .slice(0, 5);
+
+    const lowStock = products
+      .flatMap((p) =>
+        (p.variations || [])
+          .filter((v) => v.stock <= 10)
+          .map((v) => ({ ...v, productName: p.name }))
+      )
+      .sort((a, b) => a.stock - b.stock);
+
+    return { stats, recentOrders: recent, lowStockItems: lowStock };
+  }, [dateFilter, orders, customers, products]);
+
   if (isDataLoading) {
     return (
       <div className='flex items-center justify-center h-full'>
@@ -653,118 +688,103 @@ function DashboardView() {
       </div>
     );
   }
+
   return (
     <div className='space-y-6'>
-      <h1 className='text-3xl font-bold text-gray-800'>Dashboard</h1>
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6'>
-        {statsCardsData.map((card, index) => (
-          <motion.div
-            key={card.title}
-            className='bg-white p-6 rounded-xl border border-gray-200 flex items-center gap-5'
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: index * 0.1 }}
+      <div className='flex justify-between items-center'>
+        <h1 className='text-3xl font-bold text-gray-800'>Dashboard</h1>
+        <select
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+          className='form-input'
+        >
+          <option value='today'>Today</option>
+          <option value='this_week'>This Week</option>
+          <option value='this_month'>This Month</option>
+        </select>
+      </div>
+
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+        {stats.map((stat) => (
+          <div
+            key={stat.title}
+            className='bg-white p-6 rounded-xl border flex items-center gap-5'
           >
-            <div className='p-3 bg-gray-100 rounded-full'>{card.icon}</div>
+            <div className='p-3 bg-gray-100 rounded-full'>{stat.icon}</div>
             <div>
-              <p className='text-sm text-gray-500'>{card.title}</p>
-              <p className='text-2xl font-bold text-gray-800'>{card.value}</p>
-              <p
-                className={`text-xs ${
-                  card.changeType === 'increase'
-                    ? 'text-green-600'
-                    : card.changeType === 'decrease'
-                    ? 'text-red-600'
-                    : 'text-gray-500'
-                }`}
-              >
-                {card.change}
-              </p>
+              <p className='text-sm text-gray-500'>{stat.title}</p>
+              <p className='text-3xl font-bold text-gray-800'>{stat.value}</p>
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
+
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
-        <motion.div
-          className='lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200'
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-        >
-          <h3 className='font-bold text-lg text-gray-800 mb-4'>
-            Monthly Sales Trend
-          </h3>
-          <div style={{ width: '100%', height: 300 }}>
-            <ResponsiveContainer>
-              <BarChart data={salesData}>
-                <CartesianGrid strokeDasharray='3 3' vertical={false} />
-                <XAxis
-                  dataKey='name'
-                  tick={{ fill: '#6B7280', fontSize: 12 }}
-                />
-                <YAxis
-                  tick={{ fill: '#6B7280', fontSize: 12 }}
-                  tickFormatter={(value) => `Ks ${value / 1000}k`}
-                />
-                <Tooltip
-                  cursor={{ fill: 'rgba(239, 246, 255, 0.5)' }}
-                  contentStyle={{
-                    backgroundColor: '#fff',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.5rem',
-                  }}
-                />
-                <Legend iconSize={10} />
-                <Bar
-                  dataKey='sales'
-                  fill='#3B82F6'
-                  barSize={30}
-                  radius={[4, 4, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+        <div className='lg:col-span-2 bg-white p-6 rounded-xl border'>
+          <h3 className='text-lg font-bold mb-4'>Recent Orders</h3>
+          <div className='overflow-x-auto'>
+            <table className='w-full text-sm'>
+              <tbody>
+                {recentOrders.map((order) => (
+                  <tr key={order.id} className='border-b'>
+                    <td className='py-2 font-semibold'>
+                      {order.customer_name}
+                    </td>
+                    <td className='py-2 text-gray-600'>
+                      Ks {order.total_amount.toLocaleString()}
+                    </td>
+                    <td className='py-2 text-right'>
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          order.status === 'completed'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}
+                      >
+                        {order.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </motion.div>
-        <motion.div
-          className='bg-white p-6 rounded-xl border border-gray-200'
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-        >
-          <h3 className='font-bold text-lg text-gray-800 mb-4'>
-            Top Categories
+        </div>
+        <div className='bg-white p-6 rounded-xl border'>
+          <h3 className='text-lg font-bold mb-4 flex items-center gap-2'>
+            <AlertTriangle className='text-red-500' /> Low Stock Items
           </h3>
-          <div style={{ width: '100%', height: 300 }}>
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  data={categoryData}
-                  cx='50%'
-                  cy='50%'
-                  labelLine={false}
-                  outerRadius={100}
-                  fill='#8884d8'
-                  dataKey='value'
-                  label={({ name, percent }) =>
-                    `${name} ${(percent * 100).toFixed(0)}%`
-                  }
+          <div className='space-y-2 max-h-64 overflow-y-auto'>
+            {lowStockItems.length > 0 ? (
+              lowStockItems.map((item, i) => (
+                <div
+                  key={i}
+                  className='flex justify-between items-center text-sm'
                 >
-                  {categoryData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+                  <div>
+                    <p className='font-semibold'>
+                      {item.productName} ({item.color}, {item.size})
+                    </p>
+                    <p className='text-xs text-gray-500'>SKU: {item.sku}</p>
+                  </div>
+                  <span className='font-bold text-red-600'>
+                    {item.stock} left
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className='text-sm text-gray-500'>
+                No items are low on stock.
+              </p>
+            )}
           </div>
-        </motion.div>
+        </div>
       </div>
+      <style>{`.form-input { display: block; width: auto; padding: 0.5rem 0.75rem; font-size: 0.875rem; line-height: 1.25rem; color: #374151; background-color: #fff; border: 1px solid #D1D5DB; border-radius: 0.5rem; }`}</style>
     </div>
   );
 }
+
 // --- Product Management ---
 function ProductManagement() {
   const { products, categories, fetchProducts } = useContext(AppContext);
@@ -1187,7 +1207,6 @@ function ProductModal({ product, onClose, onSave }) {
     setIsSaving(true);
 
     try {
-      // SKU Uniqueness Check
       const allSkus = allProducts.flatMap((p) =>
         p.variations.map((v) => ({ sku: v.sku, productId: p.id }))
       );
@@ -1210,7 +1229,6 @@ function ProductModal({ product, onClose, onSave }) {
         }
       }
 
-      // Upload base images
       let uploadedBaseImages = formData.images.filter(
         (img) => !img.startsWith('blob:')
       );
@@ -1230,7 +1248,6 @@ function ProductModal({ product, onClose, onSave }) {
         uploadedBaseImages = [...uploadedBaseImages, ...newImageUrls];
       }
 
-      // Upload variant images
       const finalVariations = await Promise.all(
         formData.variations.map(async (variant, index) => {
           let uploadedVariantImages = variant.images.filter(
@@ -1283,6 +1300,29 @@ function ProductModal({ product, onClose, onSave }) {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const getCategoryPath = (categoryId, allCategories) => {
+    let path = [];
+    let currentId = categoryId;
+    while (currentId) {
+      const currentCategory = allCategories.find((c) => c.id === currentId);
+      if (currentCategory) {
+        path.unshift(currentCategory.name);
+        currentId = currentCategory.parent_id;
+      } else {
+        break;
+      }
+    }
+    return path.join(' > ');
+  };
+
+  const renderCategoryOptions = (allCategories) => {
+    return allCategories.map((cat) => (
+      <option key={cat.id} value={cat.id}>
+        {getCategoryPath(cat.id, allCategories)}
+      </option>
+    ));
   };
 
   return (
@@ -1361,11 +1401,7 @@ function ProductModal({ product, onClose, onSave }) {
                 onChange={handleChange}
               >
                 <option value=''>Select Category</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
+                {renderCategoryOptions(categories)}
               </FloatingLabelSelect>
               <FloatingLabelSelect
                 label='Status'
